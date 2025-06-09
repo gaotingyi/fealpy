@@ -15,7 +15,7 @@ from .integrator import (
 
 
 class ScalarNonlinearMassAndDiffusionIntegrator(NonlinearInt, OpInt, CellInt):
-    def __init__(self,
+    def __init__(self, coef: Optional[CoefLike]=None,
                  coef1: Optional[CoefLike]=None,
                  coef2: Optional[CoefLike]=None,
                  grad_var: int = 0,
@@ -63,11 +63,12 @@ class ScalarNonlinearMassAndDiffusionIntegrator(NonlinearInt, OpInt, CellInt):
         qf = mesh.quadrature_formula(q, 'cell')
         bcs, ws = qf.get_quadrature_points_and_weights()
         phi = space.basis(bcs, index=index)
-        return bcs, ws, phi, cm, index
+        gphi = space.grad_basis(bcs, index=index, variable='x')
+        return bcs, ws, phi, gphi, cm, index
 
     def assembly(self, space: _FS) -> TensorLike:
         mesh = getattr(space, 'mesh', None)
-        bcs, ws, phi, cm, index = self.fetch(space)
+        bcs, ws, phi, _, cm, index = self.fetch(space)
 
         phi_h = self.phi_h
         coef1 = self.coef1
@@ -87,26 +88,28 @@ class ScalarNonlinearMassAndDiffusionIntegrator(NonlinearInt, OpInt, CellInt):
         return A, F
 
 
-    def cell_integral_phi(self, varphi, rho, cm, grad_varphi, grad_rho,
-                          coef1, coef2, phi, ws, batched) -> TensorLike:
+    def cell_integral_phi(self, varphi, rho, gphi, cm,
+                          coef1, coef2, phi,ws, batched) -> TensorLike:
         # TODO: 补充更一般的形式
-        val1 = bm.einsum('qd,qd,qi,q->i', grad_varphi, grad_rho, phi[0], ws) * cm
+        val1 = bm.einsum('l,qld,l,qld,ql,q->l',varphi, gphi, rho, gphi, phi[0], ws) * cm * coef1
+        #val1 = bm.einsum('qd,qd,qi,q->i', grad_varphi, grad_rho, phi[0], ws) * cm
+        # val1 = bm.einsum('qd,qd,qi,q->i', grad_varphi, grad_rho, phi[0], ws) * cm
         val2 = (bm.einsum('i, qi -> q', rho, phi[0]))**2
         val3 = bm.einsum('q, qi, q -> i', ws, phi[0], val2) * cm * coef2
         return val3+val1
 
-    def cell_integral_rho(self, rho, varphi, cm, grad_varphi, grad_rho,
+    def cell_integral_rho(self, rho, varphi, gphi, cm,
                           coef1, coef2, phi, ws, batched) -> TensorLike:
         # TODO: 补充更一般的形式
-        val1 = bm.einsum('qd,qd,qi,q->i', grad_varphi, grad_rho, phi[0], ws) * cm
+        val1 = bm.einsum('l,qld,l,qld,ql,q->l', varphi, gphi, rho, gphi, phi[0], ws) * cm * coef1
+        # val1 = bm.einsum('qd,qd,qi,q->i', grad_varphi, grad_rho, phi[0], ws) * cm
+        # val1 = bm.einsum('qd,qd,qi,q->i', grad_varphi, grad_rho, phi[0], ws) * cm
         val2 = (bm.einsum('i, qi -> q', rho, phi[0])) ** 2
         val3 = bm.einsum('q, qi, q -> i', ws, phi[0], val2) * cm * coef2
         return val3 + val1
 
     def auto_grad(self, space, phi_h_, coef1, rho_h_, coef2, batched) -> TensorLike:
-        bcs, ws, phi, cm, index = self.fetch(space)
-        grad_phi = self.phi_h.grad_value(bcs, index=index)
-        grad_rho = self.rho_h.grad_value(bcs, index=index)
+        bcs, ws, phi, gphi, cm, index = self.fetch(space)
         grad_var = self.grad_var
 
         if grad_var == 0:
@@ -116,11 +119,10 @@ class ScalarNonlinearMassAndDiffusionIntegrator(NonlinearInt, OpInt, CellInt):
             cell_integral = partial(self.cell_integral_rho,
                                     coef1=coef1, coef2=coef2, phi=phi, ws=ws, batched=batched)
 
-
         fn_A = bm.vmap(bm.jacfwd(cell_integral))
         fn_F = bm.vmap(cell_integral)
 
         if grad_var == 0:
-            return fn_A(phi_h_, rho_h_, cm, grad_phi, grad_rho), -fn_F(phi_h_, rho_h_, cm, grad_phi, grad_rho)
+            return fn_A(phi_h_, rho_h_, gphi ,cm), -fn_F(phi_h_, rho_h_, gphi ,cm)
         elif grad_var == 1:
-            return fn_A(rho_h_, phi_h_, cm, grad_phi, grad_rho), -fn_F(rho_h_, phi_h_, cm, grad_phi, grad_rho)
+            return fn_A(rho_h_, phi_h_, gphi ,cm), -fn_F(rho_h_, phi_h_, gphi ,cm)

@@ -9,7 +9,8 @@ from fealpy.fem.scalar_nonlinear_mass_diffusion_integrator import ScalarNonlinea
 from fealpy.functionspace import LagrangeFESpace
 from fealpy.decorator import cartesian, barycentric
 from fealpy.model import PDEDataManager
-
+from fealpy.fem import LinearBlockForm, BlockForm, NonlinearForm
+from fealpy.fem import DirichletBC
 
 backend = 'pytorch'                                                             
 device = 'cpu'                                                                 
@@ -29,40 +30,95 @@ space = LagrangeFESpace(mesh, p=p)
 pde = PDEDataManager('nonlinear').get_example('single')
 # 刚度矩阵
 bform = BilinearForm(space)
-integrator1 = ScalarDiffusionIntegrator(coef=1, q=p+1)
+integrator1 = ScalarDiffusionIntegrator(coef=1, q=p+3)
 bform.add_integrator(integrator1)
 D = bform.assembly()
 # 质量矩阵
 bform = BilinearForm(space)
-integrator2 = ScalarMassIntegrator(coef=1, q=p+1)
+integrator2 = ScalarMassIntegrator(coef=-1, q=p+3)
 bform.add_integrator(integrator2)
 M = bform.assembly()
+
 # 右端项
 lform = LinearForm(space)
-integrator3 = ScalarSourceIntegrator(pde.source_f1, q=p+1)
+integrator3 = ScalarSourceIntegrator(pde.source_f1, q=p+3)
 lform.add_integrator(integrator3)
 f1 = lform.assembly()
 
 lform = LinearForm(space)
-integrator4 = ScalarSourceIntegrator(pde.source_f2, q=p+1)
+integrator4 = ScalarSourceIntegrator(pde.source_f2, q=p+3)
 lform.add_integrator(integrator4)
 f2 = lform.assembly()
 
-phi0 = space.function()
-rho0 = space.function()
-ipoints = space.interpolation_points()
-phi0[:] = pde.init_phi(ipoints)
-rho0[:] = pde.init_rho(ipoints)
+phi0 = space.interpolate(pde.init_phi)
+rho0 = space.interpolate(pde.init_rho)
+
+'''
+f3 = D@phi0[:]
+f4 = M@rho0[:]
+f1 = f3-f4-f1
 coeff1.phi_h = phi0
 coeff2.rho_h = rho0
-bform = BilinearForm(space)
+bform = NonlinearForm(space)
 integrator5 = ScalarNonlinearMassAndDiffusionIntegrator(coef1=coeff1,coef2=coeff2, grad_var=0, q=p+3)
 bform.add_integrator(integrator5)
-A, F = bform.assembly()
+A1, F1 = bform.assembly()
 
-bform = BilinearForm(space)
+bform = NonlinearForm(space)
 integrator6 = ScalarNonlinearMassAndDiffusionIntegrator(coef1=coeff1,coef2=coeff2, grad_var=1, q=p+3)
 bform.add_integrator(integrator5)
-A, F = bform.assembly()
+A2, F2 = bform.assembly()
+f2 = F1 - F2 - f2
+C = BlockForm([[D, M],[A1, A2]])
+C = C.assembly()
+
+B = LinearBlockForm([f1,f2])
+B = B.assembly()
+A, b = BC.apply(C, B)
+'''
+BC = DirichletBC((space, space), gd=(pde.dirichlet_zero, pde.dirichlet_zero), 
+                      threshold=(None, None), method='interp')
+gdof = space.number_of_global_dofs()
+
+for i in range(30):
+    
+    f3 = D@phi0[:]
+    f4 = M@rho0[:]
+    f5 = -(f3-f4-f1)
+    coeff1.phi_h = phi0
+    coeff2.rho_h = rho0
+    bform = NonlinearForm(space)
+    integrator5 = ScalarNonlinearMassAndDiffusionIntegrator(coef1=coeff1,coef2=coeff2, grad_var=0, q=p+3)
+    bform.add_integrator(integrator5)
+    A1, F1 = bform.assembly()
+
+    bform = NonlinearForm(space)
+    integrator6 = ScalarNonlinearMassAndDiffusionIntegrator(coef1=coeff1,coef2=coeff2, grad_var=1, q=p+3)
+    bform.add_integrator(integrator6)
+    A2, F2 = bform.assembly()
+    f6 = F2  + f2
+    C = BlockForm([[D, M],[A1, A2]])
+    C = C.assembly()
+
+    B = LinearBlockForm([f5,f6])
+    B = B.assembly()
+
+    A, b = BC.apply(C, B)
+
+    phi0[:] += b[:gdof]
+    rho0[:] += b[gdof:]
+    print(bm.max(bm.abs(b[:gdof])))
+    print(bm.max(bm.abs(b[gdof:])))
 
 
+rhoso = space.interpolate(pde.solution_rho)
+phiso = space.interpolate(pde.solution_phi)
+phierror = mesh.error(pde.solution_phi, phi0.value)
+rhoerror = mesh.error(pde.solution_rho, rho0.value)
+gphierror = mesh.error(pde.gradient_phi, phi0.grad_value)
+grhoerror = mesh.error(pde.gradient_rho, rho0.grad_value)
+
+print(phierror)
+print(rhoerror)
+print(gphierror)
+print(grhoerror)

@@ -16,7 +16,8 @@ class LinearBlockForm(Form):
         self.sparse_shape = self._get_sparse_shape() 
 
     def _get_sparse_shape(self):
-        shape = [i._get_sparse_shape() for i in self.blocks]
+        #shape = [i._get_sparse_shape() for i in self.blocks]
+        shape = [i.shape for i in self.blocks]
         return (bm.sum(bm.array(shape)), )
     
     @overload
@@ -26,7 +27,8 @@ class LinearBlockForm(Form):
     @overload
     def assembly(self, *, format: Literal['dense']) -> TensorLike: ...
     def assembly(self, *, format='dense'):
-        V = [i.assembly(format=format)for i in self.blocks]
+        #V = [i.assembly(format=format)for i in self.blocks]
+        V = [i for i in self.blocks]
         self._V = bm.concatenate(V)
         return self._V
 

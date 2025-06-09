@@ -77,9 +77,10 @@ class SingleCharge3D:
     def source_f2(self, p: TensorLike) -> TensorLike:
         """Compute source term f2 = ∇ρ⋅∇φ - ρ²."""
         x, y, z = p[..., 0], p[..., 1], p[..., 2]
-        r = x**2 + y**2 + z**2
-        val = -(self.c1*self.U0)/((self.k3**2+r**2)**(3/2)*bm.log(bm.array(self.r1/self.r2))) - self.c1**2/(self.k3**2+r**2)
-        return val
+        r = bm.sqrt(x**2 + y**2 + z**2)
+        val1 = -(self.c1*self.U0)/((self.k3**2+r**2)**(3/2)*bm.log(bm.array(self.r1/self.r2)))
+        val2 = - self.c1**2/(self.k3**2+r**2)
+        return val1+val2
     @cartesian
     def gradient_phi(self, p: TensorLike) -> TensorLike:
         """
@@ -89,7 +90,7 @@ class SingleCharge3D:
         """
         x, y, z = p[..., 0], p[..., 1], p[..., 2]
         r = bm.sqrt(x**2 + y**2 + z**2)
-        factor = self.U0 / (r**2 * bm.log(self.r1 / self.r2))
+        factor = self.U0 / (r**2 * bm.log(bm.array(self.r1 / self.r2)))
 
         val = bm.zeros_like(p, dtype=bm.float64)
         val[..., 0] = factor * x
@@ -115,36 +116,36 @@ class SingleCharge3D:
         val[..., 2] = factor * z
         return val
 
-    @cartesian
-    def rho_squared(self, p: TensorLike) -> TensorLike:
-        """
-        Compute ρ² with a regularization term:
-
-            ρ² = (c₁ / √(k₃² + r²) + ε)²
-        """
-        x, y, z = p[..., 0], p[..., 1], p[..., 2]
-        r = bm.sqrt(x**2 + y**2 + z**2)
-        epsilon = 1e-4  # Small regularization to avoid division by zero
-        denom = bm.sqrt(self.k3**2 + r**2)
-        val = (self.c1 / denom + epsilon)**2
-        return val
-
-
-    @cartesian
-    def grad_dot_grad(self, p: TensorLike) -> TensorLike:
-        """
-        Compute dot product of ∇ρ and ∇φ:
-        
-            ∇ρ · ∇φ = Σ_i ∂ρ/∂x_i · ∂φ/∂x_i
-        """
-        x, y, z = p[..., 0], p[..., 1], p[..., 2]
-        r = bm.sqrt(x**2 + y**2 + z**2)
-        log_term = bm.log(self.r1 / self.r2)
-        denom_rho = (self.k3**2 + r**2)**1.5
-        denom_phi = r**2 * log_term
-        factor = -self.c1 * self.U0 / (denom_rho * denom_phi)
-        val = factor * (x**2 + y**2 + z**2)  
-        return val
+#    @cartesian
+#    def rho_squared(self, p: TensorLike) -> TensorLike:
+#        """
+#        Compute ρ² with a regularization term:
+#
+#            ρ² = (c₁ / √(k₃² + r²) + ε)²
+#        """
+#        x, y, z = p[..., 0], p[..., 1], p[..., 2]
+#        r = bm.sqrt(x**2 + y**2 + z**2)
+#        epsilon = 1e-4  # Small regularization to avoid division by zero
+#        denom = bm.sqrt(self.k3**2 + r**2)
+#        val = (self.c1 / denom + epsilon)**2
+#        return val
+#
+#
+#    @cartesian
+#    def grad_dot_grad(self, p: TensorLike) -> TensorLike:
+#        """
+#        Compute dot product of ∇ρ and ∇φ:
+#        
+#            ∇ρ · ∇φ = Σ_i ∂ρ/∂x_i · ∂φ/∂x_i
+#        """
+#        x, y, z = p[..., 0], p[..., 1], p[..., 2]
+#        r = bm.sqrt(x**2 + y**2 + z**2)
+#        log_term = bm.log(self.r1 / self.r2)
+#        denom_rho = (self.k3**2 + r**2)**1.5
+#        denom_phi = r**2 * log_term
+#        factor = -self.c1 * self.U0 / (denom_rho * denom_phi)
+#        val = factor * (x**2 + y**2 + z**2)  
+#        return val
     @cartesian
     def init_phi(self, p: TensorLike) -> TensorLike:
         flag = self.is_dirichlet_boundary(p)
@@ -169,6 +170,11 @@ class SingleCharge3D:
     def dirichlet_rho(self, p: TensorLike) -> TensorLike:
         """Dirichlet boundary condition for ρ."""
         return self.solution_rho(p)
+    @cartesian
+    def dirichlet_zero(self, p: TensorLike) -> TensorLike:
+        """Dirichlet boundary condition for ρ."""
+        return self.solution_rho(p)*0
+
 
     @cartesian
     def is_dirichlet_boundary(self, p: TensorLike) -> TensorLike:

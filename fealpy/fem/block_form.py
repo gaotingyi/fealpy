@@ -39,8 +39,8 @@ class BlockForm(Form):
         for j in range(self.ncols):
             block = self.blocks[0][j]
             if block is not None:
-                indices = bm.empty((2, 0), dtype=block.space.mesh.itype)
-                values = bm.empty((0,), dtype=block.space.mesh.ftype)
+                indices = bm.empty((2, 0), dtype=block.itype)
+                values = bm.empty((0,), dtype=block.ftype)
                 break
         sparse_shape = self.shape
         
@@ -49,7 +49,10 @@ class BlockForm(Form):
                 block = self.blocks[i][j]
                 if block is None:
                     continue
-                block_matrix = block.assembly(format='coo')
+                if hasattr(block, 'assembly'):
+                    block_matrix = block.assembly(format='coo')
+                else:
+                    block_matrix = block
                 block_indices = block_matrix.indices + bm.array([[row_offset[i]], [col_offset[j]]])
                 block_values = block_matrix.values 
                 indices = bm.concatenate((indices, block_indices), axis=1)
